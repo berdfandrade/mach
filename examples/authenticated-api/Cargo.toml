@@ -1,0 +1,10 @@
+[package]
+name = "authenticated-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+mach.workspace = true
+users-api = { path = "../users-api" }

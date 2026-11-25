@@ -1,0 +1,15 @@
+[package]
+name = "mach"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mach-core.workspace = true
+mach-db.workspace = true
+mach-http.workspace = true
+mach-macros.workspace = true
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+sqlx.workspace = true

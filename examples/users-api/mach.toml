@@ -1,0 +1,17 @@
+[project]
+name = "users-api"
+
+[database]
+provider = "postgres"
+max_connections = 20
+
+[policy]
+redundant_comments = "warn"
+unnecessary_wrappers = "warn"
+unsafe_code = "deny"
+dead_code = "deny"
+
+[http]
+max_body_bytes = 1048576
+request_timeout_ms = 10000
+max_concurrent_requests = 128

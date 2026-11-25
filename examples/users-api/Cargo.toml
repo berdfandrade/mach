@@ -1,0 +1,12 @@
+[package]
+name = "users-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+mach.workspace = true
+
+[dev-dependencies]
+tower.workspace = true

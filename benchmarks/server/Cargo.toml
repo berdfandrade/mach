@@ -1,0 +1,11 @@
+[package]
+name = "mach-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+mach.workspace = true
+serde.workspace = true
+sqlx.workspace = true

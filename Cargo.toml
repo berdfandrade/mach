@@ -1,0 +1,44 @@
+[workspace]
+members = ["crates/*", "examples/*", "benchmarks/server"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+mach-core = { path = "crates/mach-core" }
+mach-db = { path = "crates/mach-db" }
+mach-http = { path = "crates/mach-http" }
+mach-codegen = { path = "crates/mach-codegen" }
+mach-macros = { path = "crates/mach-macros" }
+mach = { path = "crates/mach" }
+mach-guard = { path = "crates/mach-guard" }
+mach-cli = { path = "crates/mach-cli" }
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
+tower = { version = "0.5", features = ["limit", "load-shed", "util"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "migrate", "derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "0.8"
+syn = { version = "2", features = ["full", "visit"] }
+quote = "1"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+sha2 = "0.10"
+subtle = "2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tempfile = "3"
+walkdir = "2"
+heck = "0.5"
+rustc_lexer = { package = "ra-ap-rustc_lexer", version = "0.186" }
+fs2 = "0.4"
+tracing = "0.1"
+
+[profile.release]
+lto = "thin"

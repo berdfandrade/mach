@@ -1,0 +1,4 @@
+/target/
+.mach/
+.env
+__pycache__/

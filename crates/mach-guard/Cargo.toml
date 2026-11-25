@@ -1,0 +1,11 @@
+[package]
+name = "mach-guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+syn.workspace = true
+proc-macro2.workspace = true
+rustc_lexer.workspace = true
+serde.workspace = true
