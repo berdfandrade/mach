@@ -99,6 +99,7 @@ pub(crate) fn parse(src: &str) -> Result<Entry> {
     items(&file.items, &mut entry)?;
     Ok(entry)
 }
+const CACHE: &str = ".mach/index-v2";
 pub fn sources() -> Result<Vec<String>> {
     let mut paths = Vec::new();
     for dir in ["src", "tests"] {
@@ -121,9 +122,10 @@ impl Index {
         let mut out = Self::default();
         let mut names = BTreeSet::new();
         let mut tables = BTreeSet::new();
+        let mut live = BTreeSet::new();
         for p in sources()? {
             let text = fs::read_to_string(&p)?;
-            let cache = format!(".mach/index-v2/{:x}.json", Sha256::digest(text.as_bytes()));
+            let cache = format!("{CACHE}/{:x}.json", Sha256::digest(text.as_bytes()));
             crate::transaction::checked(Path::new(&cache))?;
             let entry: Entry = match fs::read(&cache)
                 .ok()
@@ -144,6 +146,13 @@ impl Index {
                 )
             }
             out.files.insert(p, entry);
+            live.insert(cache);
+        }
+        for stale in fs::read_dir(CACHE).into_iter().flatten() {
+            let path = stale?.path();
+            if !live.iter().any(|l| Path::new(l) == path) {
+                fs::remove_file(path)?
+            }
         }
         Ok(out)
     }

@@ -51,6 +51,7 @@ def check_app(root):
             locked.chmod(0o700)
             locked.rmdir()
     cli("generate", "resource", "users", "--crud")
+    assert "src/modules/categories/model.rs" in json.loads(cli("generate", "entity", "Category", "--dry-run"))["files"]
     assert json.loads(cli("generate", "resource", "users", "--crud"))["files"] == []
     assert "WHY: local module registry" in registry.read_text()
     model = app / "src/modules/users/model.rs"
@@ -184,6 +185,10 @@ def check_app(root):
     cli("migrate", ok=False)
     cli("migrate", "--allow-destructive")
     cli("migrate")
+    cli("field", "add", "User", "age:i32", "--writable")
+    assert json.loads(cli("generate", "migration"))["review"]
+    proc = subprocess.run([BIN, "migrate"], cwd=app, capture_output=True, text=True)
+    assert proc.returncode and "null values" in proc.stderr, proc.stderr
 
 
 with tempfile.TemporaryDirectory(prefix="mach-workflow-") as tmp:

@@ -135,7 +135,13 @@ pub fn bounded(router: Router, h: &Http) -> std::io::Result<Router> {
                     .parse::<HeaderValue>()
                     .map_err(|_| std::io::Error::other("invalid CORS origin"))?,
             )
-            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+            ])
             .allow_headers([
                 axum::http::header::AUTHORIZATION,
                 axum::http::header::CONTENT_TYPE,

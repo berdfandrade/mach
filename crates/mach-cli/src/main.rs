@@ -261,14 +261,18 @@ fn run() -> Result<()> {
         Cmd::Generate { kind } => {
             let plan = match kind {
                 Generate::Migration => {
-                    let m = migrations::diff(&Index::load()?)?;
+                    let mut m = migrations::diff(&Index::load()?)?;
                     if dry {
                         return print(
-                            json!({"file":m.path,"sql":m.sql,"destructive":m.destructive}),
+                            json!({"file":m.path,"sql":m.sql,"destructive":m.destructive,"review":m.review}),
                             json,
                         );
                     }
-                    m.plan(allow)?
+                    let review = std::mem::take(&mut m.review);
+                    let plan = m.plan(allow)?;
+                    let files = json!(plan.paths());
+                    plan.apply(true)?;
+                    return print(json!({"files":files,"review":review}), json);
                 }
                 Generate::Resource { name, .. } => generate::component("resource", &name)?,
                 Generate::Module { name } => generate::component("module", &name)?,

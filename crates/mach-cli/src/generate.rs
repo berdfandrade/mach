@@ -153,18 +153,39 @@ fn register(plan: &mut Plan, module: &str, routed: bool) -> Result<()> {
     groups.declared.insert(&mut out, module);
     plan.stage_from(path, Some(text), out)
 }
+fn plural(word: &str) -> String {
+    match word.strip_suffix('y') {
+        Some(stem) if !stem.ends_with(['a', 'e', 'i', 'o', 'u']) => format!("{stem}ies"),
+        _ if word.ends_with(['s', 'x', 'z']) || word.ends_with("ch") || word.ends_with("sh") => {
+            format!("{word}es")
+        }
+        _ => format!("{word}s"),
+    }
+}
+fn singular(word: &str) -> String {
+    if let Some(stem) = word.strip_suffix("ies") {
+        return format!("{stem}y");
+    }
+    if ["sses", "xes", "zes", "ches", "shes"]
+        .iter()
+        .any(|s| word.ends_with(s))
+    {
+        return word[..word.len() - 2].into();
+    }
+    match word.strip_suffix('s') {
+        Some(stem) if !stem.ends_with('s') => stem.into(),
+        _ => word.into(),
+    }
+}
 pub fn component(kind: &str, name: &str) -> Result<Plan> {
     let (module, entity) = if kind == "entity" {
         ensure!(
             name == name.to_upper_camel_case(),
             "entity names use UpperCamelCase"
         );
-        (format!("{}s", name.to_snake_case()), name.to_owned())
+        (plural(&name.to_snake_case()), name.to_owned())
     } else {
-        (
-            name.into(),
-            name.strip_suffix('s').unwrap_or(name).to_upper_camel_case(),
-        )
+        (name.into(), singular(name).to_upper_camel_case())
     };
     ensure!(
         mach_codegen::valid_ident(&module) && syn::parse_str::<Ident>(&entity).is_ok(),
@@ -248,4 +269,24 @@ pub fn component(kind: &str, name: &str) -> Result<Plan> {
     plan.stage_from(&path, original, text)?;
     register(&mut plan, &module, crud || kind == "controller")?;
     Ok(plan)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn module_and_entity_names_round_trip() {
+        for (module, entity) in [
+            ("users", "user"),
+            ("categories", "category"),
+            ("addresses", "address"),
+            ("boxes", "box"),
+            ("matches", "match"),
+            ("days", "day"),
+        ] {
+            assert_eq!(singular(module), entity);
+            assert_eq!(plural(entity), module);
+        }
+        assert_eq!(singular("class"), "class");
+    }
 }
