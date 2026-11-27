@@ -99,6 +99,7 @@ pub struct Migration {
     pub path: Option<String>,
     pub sql: String,
     pub destructive: bool,
+    pub review: Vec<String>,
 }
 impl Migration {
     pub fn plan(self, allow: bool) -> Result<Plan> {
@@ -132,6 +133,7 @@ pub fn diff(index: &Index) -> Result<Migration> {
     let new = index.schema();
     let mut out = Vec::new();
     let mut destructive = false;
+    let mut review = Vec::new();
     let mut new_tables = BTreeSet::new();
     let mut foreign_keys = Vec::new();
     for (t, e) in &new {
@@ -182,6 +184,7 @@ pub fn diff(index: &Index) -> Result<Migration> {
                         && prev.id == f.id
                         && prev.optional == f.optional
                         && prev.default == f.default
+                        && prev.generated == f.generated
                         && same_reference(&old, &new, prev, f),
                     "column {}.{} requires a hand-reviewed migration",
                     t,
@@ -197,6 +200,14 @@ pub fn diff(index: &Index) -> Result<Migration> {
             } else if !new_tables.contains(t) {
                 let mut column = f.clone();
                 column.references = None;
+                if !f.optional && f.default.is_none() && !f.generated {
+                    let note = format!(
+                        "{t}.{} is required without a default; backfill existing rows before applying",
+                        f.name
+                    );
+                    out.push(format!("-- mach-review: {note}"));
+                    review.push(note);
+                }
                 out.push(format!(
                     "ALTER TABLE {table} ADD COLUMN {};",
                     column.column()
@@ -228,6 +239,7 @@ pub fn diff(index: &Index) -> Result<Migration> {
             path: None,
             sql: String::new(),
             destructive: false,
+            review,
         });
     }
     if destructive {
@@ -241,6 +253,7 @@ pub fn diff(index: &Index) -> Result<Migration> {
         )),
         sql: out.join("\n") + "\n",
         destructive,
+        review,
     })
 }
 pub async fn run(allow: bool) -> Result<()> {
@@ -272,11 +285,10 @@ pub async fn run(allow: bool) -> Result<()> {
             bail!("pending destructive migration; review SQL and pass --allow-destructive");
         }
     }
-    migrator.run(&pool).await.map_err(|_| {
-        anyhow::anyhow!(
-            "migration failed; check database availability, schema and migration checksums"
-        )
-    })?;
+    migrator
+        .run(&pool)
+        .await
+        .context("migration failed; review the SQL and the migration history")?;
     Ok(())
 }
 

@@ -110,6 +110,8 @@ enum Generate {
         name: String,
         #[arg(long, required = true)]
         crud: bool,
+        #[arg(long)]
+        owner: Option<String>,
     },
     Migration,
 }
@@ -261,20 +263,26 @@ fn run() -> Result<()> {
         Cmd::Generate { kind } => {
             let plan = match kind {
                 Generate::Migration => {
-                    let m = migrations::diff(&Index::load()?)?;
+                    let mut m = migrations::diff(&Index::load()?)?;
                     if dry {
                         return print(
-                            json!({"file":m.path,"sql":m.sql,"destructive":m.destructive}),
+                            json!({"file":m.path,"sql":m.sql,"destructive":m.destructive,"review":m.review}),
                             json,
                         );
                     }
-                    m.plan(allow)?
+                    let review = std::mem::take(&mut m.review);
+                    let plan = m.plan(allow)?;
+                    let files = json!(plan.paths());
+                    plan.apply(true)?;
+                    return print(json!({"files":files,"review":review}), json);
                 }
-                Generate::Resource { name, .. } => generate::component("resource", &name)?,
-                Generate::Module { name } => generate::component("module", &name)?,
-                Generate::Entity { name } => generate::component("entity", &name)?,
-                Generate::Controller { name } => generate::component("controller", &name)?,
-                Generate::Service { name } => generate::component("service", &name)?,
+                Generate::Resource { name, owner, .. } => {
+                    generate::component("resource", &name, owner.as_deref())?
+                }
+                Generate::Module { name } => generate::component("module", &name, None)?,
+                Generate::Entity { name } => generate::component("entity", &name, None)?,
+                Generate::Controller { name } => generate::component("controller", &name, None)?,
+                Generate::Service { name } => generate::component("service", &name, None)?,
             };
             let files = json!(plan.paths());
             if !dry {
@@ -334,6 +342,12 @@ fn run() -> Result<()> {
                             let mut flags = Vec::new();
                             if f.id {
                                 flags.push("PK AUTO".to_owned())
+                            }
+                            if f.generated {
+                                flags.push("GENERATED".to_owned())
+                            }
+                            if f.owner {
+                                flags.push("OWNER".to_owned())
                             }
                             if f.unique {
                                 flags.push("UNIQUE".to_owned())

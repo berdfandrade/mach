@@ -24,6 +24,7 @@ pub fn grant(s: &AppState, h: &HeaderMap, action: &str, id: Option<i64>) -> Resu
             id,
         },
     )
+    .map(drop)
 }
 pub async fn start(
     routes: Router<AppState>,

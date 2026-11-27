@@ -6,6 +6,7 @@ pub struct User {
     #[generated]
     #[expose]
     pub id: i64,
+    #[unique]
     #[writable]
     #[expose]
     #[length(min = 3, max = 254)]

@@ -82,13 +82,19 @@ fn expand_entity(mut item: ItemStruct, e: Entity) -> syn::Result<Tokens> {
     let sql = e.crud();
     let find = sql.find;
     let list = sql.list;
+    let list_desc = sql.list_desc;
     let create = sql.create;
     let delete = sql.delete;
     let table = e.table;
+    let (owner, by_owner) = if e.fields.iter().any(|f| f.owner) {
+        (quote!(owner:i64,), quote!(.bind(owner)))
+    } else {
+        (quote!(), quote!())
+    };
     let update=sql.update.map(|s|quote!{
-        pub async fn update<'e>(db:impl ::mach::db::PgExecutor<'e>,id:i64,value:#input)->::mach::db::Result<Self>{
+        pub async fn update<'e>(db:impl ::mach::db::PgExecutor<'e>,id:i64,#owner value:#input)->::mach::db::Result<Self>{
             ::mach::db::Validate::validate(&value)?;
-            Ok(::mach::sqlx::query_as(#s)#(#binds)*.bind(id).fetch_one(db).await?)
+            Ok(::mach::sqlx::query_as(#s)#(#binds)*.bind(id)#by_owner.fetch_one(db).await?)
         }
     });
     Ok(quote! {
@@ -111,17 +117,18 @@ fn expand_entity(mut item: ItemStruct, e: Entity) -> syn::Result<Tokens> {
             pub async fn find_or_fail<'e>(db:impl ::mach::db::PgExecutor<'e>,id:i64)->::mach::db::Result<Self>{
                 Self::find(db,id).await?.ok_or(::mach::db::Error::NotFound)
             }
-            pub async fn create<'e>(db:impl ::mach::db::PgExecutor<'e>,value:#input)->::mach::db::Result<Self>{
+            pub async fn create<'e>(db:impl ::mach::db::PgExecutor<'e>,#owner value:#input)->::mach::db::Result<Self>{
                 ::mach::db::Validate::validate(&value)?;
-                Ok(::mach::sqlx::query_as(#create)#(#binds)*.fetch_one(db).await?)
+                Ok(::mach::sqlx::query_as(#create)#(#binds)*#by_owner.fetch_one(db).await?)
             }
             #update
             pub async fn list<'e>(db:impl ::mach::db::PgExecutor<'e>,page: ::mach::db::Pagination)->::mach::db::Result<Vec<Self>>{
                 let page=page.validate()?;
-                Ok(::mach::sqlx::query_as(#list).bind(page.limit).bind(page.offset).fetch_all(db).await?)
+                let sql=match page.order { ::mach::db::Order::Asc=>#list, ::mach::db::Order::Desc=>#list_desc };
+                Ok(::mach::sqlx::query_as(sql).bind(page.limit).bind(page.offset).fetch_all(db).await?)
             }
-            pub async fn delete<'e>(db:impl ::mach::db::PgExecutor<'e>,id:i64)->::mach::db::Result<()>{
-                if ::mach::sqlx::query(#delete).bind(id).execute(db).await?.rows_affected()==0 {return Err(::mach::db::Error::NotFound)} Ok(())
+            pub async fn delete<'e>(db:impl ::mach::db::PgExecutor<'e>,id:i64,#owner)->::mach::db::Result<()>{
+                if ::mach::sqlx::query(#delete).bind(id)#by_owner.execute(db).await?.rows_affected()==0 {return Err(::mach::db::Error::NotFound)} Ok(())
             }
         }
         #[allow(unused_macros)] macro_rules! #schema {

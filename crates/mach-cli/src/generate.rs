@@ -153,18 +153,39 @@ fn register(plan: &mut Plan, module: &str, routed: bool) -> Result<()> {
     groups.declared.insert(&mut out, module);
     plan.stage_from(path, Some(text), out)
 }
-pub fn component(kind: &str, name: &str) -> Result<Plan> {
+fn plural(word: &str) -> String {
+    match word.strip_suffix('y') {
+        Some(stem) if !stem.ends_with(['a', 'e', 'i', 'o', 'u']) => format!("{stem}ies"),
+        _ if word.ends_with(['s', 'x', 'z']) || word.ends_with("ch") || word.ends_with("sh") => {
+            format!("{word}es")
+        }
+        _ => format!("{word}s"),
+    }
+}
+fn singular(word: &str) -> String {
+    if let Some(stem) = word.strip_suffix("ies") {
+        return format!("{stem}y");
+    }
+    if ["sses", "xes", "zes", "ches", "shes"]
+        .iter()
+        .any(|s| word.ends_with(s))
+    {
+        return word[..word.len() - 2].into();
+    }
+    match word.strip_suffix('s') {
+        Some(stem) if !stem.ends_with('s') => stem.into(),
+        _ => word.into(),
+    }
+}
+pub fn component(kind: &str, name: &str, owner: Option<&str>) -> Result<Plan> {
     let (module, entity) = if kind == "entity" {
         ensure!(
             name == name.to_upper_camel_case(),
             "entity names use UpperCamelCase"
         );
-        (format!("{}s", name.to_snake_case()), name.to_owned())
+        (plural(&name.to_snake_case()), name.to_owned())
     } else {
-        (
-            name.into(),
-            name.strip_suffix('s').unwrap_or(name).to_upper_camel_case(),
-        )
+        (name.into(), singular(name).to_upper_camel_case())
     };
     ensure!(
         mach_codegen::valid_ident(&module) && syn::parse_str::<Ident>(&entity).is_ok(),
@@ -186,12 +207,21 @@ pub fn component(kind: &str, name: &str) -> Result<Plan> {
     if crud || kind == "entity" {
         let mut model = template!("model.rs").to_owned();
         if entity == "User" {
-            model=model.replace("    #[writable]","    #[writable]\n    #[expose]\n    #[length(min = 3, max = 254)]\n    pub email: String,\n    #[writable]")
+            model=model.replace("    #[writable]","    #[unique]\n    #[writable]\n    #[expose]\n    #[length(min = 3, max = 254)]\n    pub email: String,\n    #[writable]")
+        }
+        if let Some(table) = owner {
+            ensure!(mach_codegen::valid_ident(table), "invalid owner table");
+            model = model.replace(
+                "    pub name: String,\n",
+                &format!("    pub name: String,\n    #[owner]\n    #[expose]\n    #[references(\"{table}.id\")]\n    pub {}_id: i64,\n", singular(table)),
+            );
         }
         add("model", render(&model)?)?;
     }
     if crud || kind == "controller" {
-        let source = if crud {
+        let source = if crud && owner.is_some() {
+            render(template!("controller_owned.rs"))?
+        } else if crud {
             render(template!("controller.rs"))?
         } else {
             render(
@@ -248,4 +278,24 @@ pub fn component(kind: &str, name: &str) -> Result<Plan> {
     plan.stage_from(&path, original, text)?;
     register(&mut plan, &module, crud || kind == "controller")?;
     Ok(plan)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn module_and_entity_names_round_trip() {
+        for (module, entity) in [
+            ("users", "user"),
+            ("categories", "category"),
+            ("addresses", "address"),
+            ("boxes", "box"),
+            ("matches", "match"),
+            ("days", "day"),
+        ] {
+            assert_eq!(singular(module), entity);
+            assert_eq!(plural(entity), module);
+        }
+        assert_eq!(singular("class"), "class");
+    }
 }

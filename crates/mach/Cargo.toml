@@ -13,3 +13,6 @@ axum.workspace = true
 tokio.workspace = true
 serde.workspace = true
 sqlx.workspace = true
+
+[features]
+ws = ["axum/ws"]
