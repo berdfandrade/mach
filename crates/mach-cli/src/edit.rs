@@ -20,6 +20,8 @@ pub enum FieldCmd {
         writable: bool,
         #[arg(long)]
         expose: bool,
+        #[arg(long)]
+        generated: bool,
     },
     Rename {
         entity: String,
@@ -132,6 +134,7 @@ pub fn change(index: &Index, op: Edit, dry: bool, allow: bool) -> Result<(Plan, 
             optional,
             writable,
             expose,
+            generated,
             ..
         }) => {
             ensure!(existing.is_none(), "field already exists");
@@ -141,11 +144,16 @@ pub fn change(index: &Index, op: Edit, dry: bool, allow: bool) -> Result<(Plan, 
                 "bool" => "bool",
                 "i32" => "i32",
                 "i64" => "i64",
+                "timestamp" => "Timestamp",
                 _ => bail!("unsupported field type"),
             };
             ensure!(
-                *optional || *writable,
-                "a required field needs an explicit write policy; use --writable or --optional"
+                !*generated || ty == "Timestamp" && !*optional && !*writable,
+                "--generated applies to a required, read-only timestamp"
+            );
+            ensure!(
+                *optional || *writable || *generated,
+                "a required field needs an explicit write policy; use --writable, --optional or --generated"
             );
             let ty = if *optional {
                 format!("Option<{ty}>")
@@ -153,6 +161,9 @@ pub fn change(index: &Index, op: Edit, dry: bool, allow: bool) -> Result<(Plan, 
                 ty.into()
             };
             let mut text = String::new();
+            if *generated {
+                text.push_str("    #[generated]\n")
+            }
             if *writable {
                 text.push_str("    #[writable]\n")
             }

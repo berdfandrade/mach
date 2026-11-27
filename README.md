@@ -24,7 +24,8 @@ mach generate resource users --crud
 mach field add User phone:string --optional
 mach field rename User name full_name --dry-run
 mach field rename User name full_name
-mach index add User email --unique
+mach generate resource posts --crud --owner users
+mach field add Post created_at:timestamp --generated --expose
 mach generate migration
 mach inspect User --sql
 mach context --compact
@@ -60,9 +61,11 @@ Em um banco novo, a resposta é `201 Created` e inclui o ID gerado. O campo `pho
 
 ## Como o framework funciona
 
-- **Entidades e validação.** `#[entity(table = "users")]` declara a tabela. `#[id] #[generated]` identifica a chave primária i64. `#[writable]` inclui um campo na entrada pública e `#[expose]` permite serializá-lo. A entrada rejeita campos desconhecidos. O modelo aceita String, i32, i64, bool e Option desses tipos. PUT substitui os campos graváveis.
-- **Consultas.** O repositório deriva métodos com os prefixos `find_by`, `count_by`, `exists_by` e `delete_by`. Predicados aceitam igualdade, `and`, `is_null`, `greater_than` e `less_than`. O compilador verifica nomes de campos, ambiguidades, parâmetros e retorno. Uma busca individual retorna a primeira linha em ordem de chave primária. A listagem retorna 25 registros por padrão, com limite de 100 e offset máximo de um milhão.
+- **Entidades e validação.** `#[entity(table = "users")]` declara a tabela. `#[id] #[generated]` identifica a chave primária i64. `#[writable]` inclui um campo na entrada pública e `#[expose]` permite serializá-lo. A entrada rejeita campos desconhecidos. O modelo aceita String, i32, i64, bool, `Timestamp` (TIMESTAMPTZ, serializado em RFC 3339) e Option desses tipos. `#[generated]` em um `Timestamp` deixa o banco preencher o valor com `now()`. PUT substitui os campos graváveis. O recurso `users` gerado já declara o e-mail como único.
+- **Consultas.** O repositório deriva métodos com os prefixos `find_by`, `count_by`, `exists_by` e `delete_by`. Predicados aceitam igualdade, `and`, `is_null`, `greater_than` e `less_than`. O compilador verifica nomes de campos, ambiguidades, parâmetros e retorno. Uma busca individual retorna a primeira linha em ordem de chave primária. A listagem retorna 25 registros por padrão, com limite de 100 e offset máximo de um milhão. `?order=desc` inverte a ordem da chave primária.
 - **Persistência.** CRUD e consultas recebem o pool ou a transação explicitamente. `#[references("outra_tabela.id")]`, `#[unique]` e `#[index]` declaram chaves estrangeiras e índices de uma coluna. Para SQL específico, use `mach::sqlx` e associe valores externos por parâmetros.
+- **Dono do registro.** `#[owner]` marca um campo i64 que o cliente nunca envia. `create`, `update` e `delete` recebem o dono explicitamente, e as escritas filtram por ele: alterar o registro de outro dono resulta em 404. `generate resource posts --crud --owner users` cria o campo `user_id` e um controlador que usa `s.require(...)?.id()?`, o ID numérico do principal autenticado. A política de acesso precisa devolver esse ID; o `BearerAccess` padrão representa um único operador e recusa essas escritas.
+- **WebSocket.** Ative a feature `ws` do crate `mach` para usar `mach::axum::extract::ws`.
 - **Alterações de código e schema.** A CLI edita declarações Rust que consegue identificar, preserva texto não relacionado e verifica a compilação. Um diário em `.mach/` permite restaurar os arquivos após falhas. Em caso de edição concorrente conflitante, a recuperação exige conciliação manual. As migrações SQL são numeradas e versionadas. Uma chave estável permite renomear colunas preservando os dados. Uma coluna obrigatória sem valor padrão adicionada a uma tabela existente gera um aviso `review`, porque as linhas atuais precisam de preenchimento antes da migração. Conversões de tipo, mudanças de valores padrão existentes e reformulações de relacionamentos exigem SQL revisado e conciliação do histórico.
 - **MACH Guard.** Combina diagnósticos do compilador e do Clippy com regras de arquitetura, comentários, código inseguro e operações potencialmente bloqueantes. Os resultados distinguem violações comprovadas de avisos heurísticos. `mach fix --safe` aplica rustfmt com verificação e restauração em caso de falha.
 

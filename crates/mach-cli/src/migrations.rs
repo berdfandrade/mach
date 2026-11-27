@@ -184,6 +184,7 @@ pub fn diff(index: &Index) -> Result<Migration> {
                         && prev.id == f.id
                         && prev.optional == f.optional
                         && prev.default == f.default
+                        && prev.generated == f.generated
                         && same_reference(&old, &new, prev, f),
                     "column {}.{} requires a hand-reviewed migration",
                     t,
@@ -199,7 +200,7 @@ pub fn diff(index: &Index) -> Result<Migration> {
             } else if !new_tables.contains(t) {
                 let mut column = f.clone();
                 column.references = None;
-                if !f.optional && f.default.is_none() {
+                if !f.optional && f.default.is_none() && !f.generated {
                     let note = format!(
                         "{t}.{} is required without a default; backfill existing rows before applying",
                         f.name

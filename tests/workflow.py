@@ -51,6 +51,8 @@ def check_app(root):
             locked.chmod(0o700)
             locked.rmdir()
     cli("generate", "resource", "users", "--crud")
+    cli("generate", "resource", "posts", "--crud", "--owner", "users")
+    cli("field", "add", "Post", "created_at:timestamp", "--generated", "--expose")
     assert "src/modules/categories/model.rs" in json.loads(cli("generate", "entity", "Category", "--dry-run"))["files"]
     assert json.loads(cli("generate", "resource", "users", "--crud"))["files"] == []
     assert "WHY: local module registry" in registry.read_text()
@@ -60,7 +62,7 @@ def check_app(root):
     assert model.read_bytes() == example.read_bytes()
     model.write_text("// WHY: preserve café and user formatting.\n" + model.read_text())
     baseline = model.read_bytes()
-    for spec in ("id:i64", "bad-name:string", "when:timestamp"):
+    for spec in ("id:i64", "bad-name:string", "when:uuid"):
         cli("field", "add", "User", spec, "--optional", ok=False)
     assert baseline == model.read_bytes()
     cli("generate", "migration")

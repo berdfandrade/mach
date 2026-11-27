@@ -16,6 +16,10 @@ pub struct Field {
     pub kind: Kind,
     pub optional: bool,
     pub id: bool,
+    #[serde(default)]
+    pub generated: bool,
+    #[serde(default)]
+    pub owner: bool,
     pub write: bool,
     pub expose: bool,
     pub unique: bool,
@@ -31,6 +35,7 @@ pub enum Kind {
     I64,
     I32,
     Bool,
+    Timestamp,
 }
 impl Kind {
     pub fn sql(self) -> &'static str {
@@ -39,6 +44,7 @@ impl Kind {
             Self::I64 => "BIGINT",
             Self::I32 => "INTEGER",
             Self::Bool => "BOOLEAN",
+            Self::Timestamp => "TIMESTAMPTZ",
         }
     }
     pub fn rust(self) -> &'static str {
@@ -47,6 +53,7 @@ impl Kind {
             Self::I64 => "i64",
             Self::I32 => "i32",
             Self::Bool => "bool",
+            Self::Timestamp => "Timestamp",
         }
     }
 }
@@ -92,6 +99,9 @@ pub fn entity(item: &ItemStruct, table: String) -> syn::Result<Entity> {
     if fields.iter().filter(|f| f.id).count() != 1 {
         return err(item.span(), "declare one #[id] #[generated] i64 field");
     }
+    if fields.iter().filter(|f| f.owner).count() > 1 {
+        return err(item.span(), "declare at most one #[owner] field");
+    }
     let mut keys = BTreeSet::new();
     if fields.iter().any(|f| !keys.insert(&f.key)) {
         return err(item.span(), "duplicate stable column key");
@@ -128,10 +138,11 @@ fn field(f: &RustField) -> syn::Result<Field> {
         Type::Path(p) if p.path.is_ident("i64") => Kind::I64,
         Type::Path(p) if p.path.is_ident("i32") => Kind::I32,
         Type::Path(p) if p.path.is_ident("bool") => Kind::Bool,
+        Type::Path(p) if p.path.is_ident("Timestamp") => Kind::Timestamp,
         _ => {
             return err(
                 ty.span(),
-                "supported types: String, bool, i32, i64 and Option<T>",
+                "supported types: String, bool, i32, i64, Timestamp and Option<T>",
             );
         }
     };
@@ -141,6 +152,8 @@ fn field(f: &RustField) -> syn::Result<Field> {
         kind,
         optional,
         id: false,
+        generated: false,
+        owner: false,
         write: false,
         expose: false,
         unique: false,
@@ -162,13 +175,14 @@ fn field(f: &RustField) -> syn::Result<Field> {
             return err(a.span(), "duplicate field attribute");
         }
         match attr.as_str() {
-            "id" | "generated" | "writable" | "expose" | "unique" | "index"
+            "id" | "generated" | "owner" | "writable" | "expose" | "unique" | "index"
                 if !matches!(a.meta, syn::Meta::Path(_)) =>
             {
                 return err(a.span(), "unexpected arguments");
             }
             "id" => out.id = true,
             "generated" => generated = true,
+            "owner" => out.owner = true,
             "writable" => out.write = true,
             "expose" => out.expose = true,
             "unique" => out.unique = true,
@@ -208,8 +222,18 @@ fn field(f: &RustField) -> syn::Result<Field> {
             _ => return err(a.span(), "unsupported entity field attribute"),
         }
     }
-    if out.id != generated || out.id && (out.optional || out.write || kind != Kind::I64) {
+    if out.id && (!generated || out.optional || out.write || kind != Kind::I64) {
         return err(f.span(), "id must be generated, required, read-only i64");
+    }
+    out.generated = generated && !out.id;
+    if out.generated && (kind != Kind::Timestamp || out.optional || out.write) {
+        return err(
+            f.span(),
+            "#[generated] applies to the id or a required, read-only Timestamp",
+        );
+    }
+    if out.owner && (out.id || out.optional || out.write || kind != Kind::I64) {
+        return err(f.span(), "owner must be a required, read-only i64");
     }
     if out.default.is_some() && kind != Kind::Bool
         || (out.min.is_some() || out.max.is_some())
@@ -217,8 +241,12 @@ fn field(f: &RustField) -> syn::Result<Field> {
     {
         return err(f.span(), "invalid default or length constraint");
     }
-    if !out.id && !out.write && !out.optional && out.default.is_none() {
-        return err(f.span(), "read-only fields require a default or Option<T>");
+    if !(out.id || out.write || out.optional || out.generated || out.owner) && out.default.is_none()
+    {
+        return err(
+            f.span(),
+            "read-only fields require a default, Option<T>, #[generated] or #[owner]",
+        );
     }
     Ok(out)
 }
@@ -234,6 +262,9 @@ impl Field {
         if let Some(v) = self.default {
             sql.push_str(if v { " DEFAULT TRUE" } else { " DEFAULT FALSE" })
         }
+        if self.generated {
+            sql.push_str(" DEFAULT now()")
+        }
         if let Some(r) = &self.references {
             let (t, f) = r.split_once('.').unwrap();
             sql.push_str(&format!(" REFERENCES {} ({})", quoted(t), quoted(f)))
@@ -247,6 +278,7 @@ pub struct Crud {
     pub create: String,
     pub update: Option<String>,
     pub list: String,
+    pub list_desc: String,
     pub delete: String,
 }
 impl Entity {
@@ -262,12 +294,14 @@ impl Entity {
         let cols = self.columns();
         let id = quoted(&self.fields.iter().find(|f| f.id).unwrap().name);
         let writable = self.fields.iter().filter(|f| f.write).collect::<Vec<_>>();
-        let names = writable
+        let owner = self.fields.iter().find(|f| f.owner);
+        let inserted = writable.iter().copied().chain(owner).collect::<Vec<_>>();
+        let names = inserted
             .iter()
             .map(|f| quoted(&f.name))
             .collect::<Vec<_>>()
             .join(", ");
-        let bind = (1..=writable.len())
+        let bind = (1..=inserted.len())
             .map(|i| format!("${i}"))
             .collect::<Vec<_>>()
             .join(", ");
@@ -277,22 +311,30 @@ impl Entity {
             .map(|(i, f)| format!("{} = ${}", quoted(&f.name), i + 1))
             .collect::<Vec<_>>()
             .join(", ");
-        let values = if writable.is_empty() {
+        let values = if inserted.is_empty() {
             "DEFAULT VALUES".into()
         } else {
             format!("({names}) VALUES ({bind})")
+        };
+        let scope = |n: usize| {
+            let mut s = format!("{id} = ${n}");
+            if let Some(o) = owner {
+                s.push_str(&format!(" AND {} = ${}", quoted(&o.name), n + 1))
+            }
+            s
         };
         Crud {
             find: format!("SELECT {cols} FROM {t} WHERE {id} = $1"),
             create: format!("INSERT INTO {t} {values} RETURNING {cols}"),
             update: (!writable.is_empty()).then(|| {
                 format!(
-                    "UPDATE {t} SET {assignments} WHERE {id} = ${} RETURNING {cols}",
-                    writable.len() + 1
+                    "UPDATE {t} SET {assignments} WHERE {} RETURNING {cols}",
+                    scope(writable.len() + 1)
                 )
             }),
             list: format!("SELECT {cols} FROM {t} ORDER BY {id} LIMIT $1 OFFSET $2"),
-            delete: format!("DELETE FROM {t} WHERE {id} = $1"),
+            list_desc: format!("SELECT {cols} FROM {t} ORDER BY {id} DESC LIMIT $1 OFFSET $2"),
+            delete: format!("DELETE FROM {t} WHERE {}", scope(1)),
         }
     }
 }
@@ -472,6 +514,78 @@ mod tests {
             "exists_by_flag_less_than",
         ] {
             assert!(derived(&e, name).is_err())
+        }
+    }
+    #[test]
+    fn owner_scopes_writes_and_timestamps_default_to_now() {
+        let e = entity(
+            &syn::parse_quote!(
+                struct Note {
+                    #[id]
+                    #[generated]
+                    id: i64,
+                    #[writable]
+                    body: String,
+                    #[owner]
+                    user_id: i64,
+                    #[generated]
+                    created_at: Timestamp,
+                }
+            ),
+            "notes".into(),
+        )
+        .unwrap();
+        let sql = e.crud();
+        assert!(sql.create.starts_with(
+            "INSERT INTO \"notes\" (\"body\", \"user_id\") VALUES ($1, $2) RETURNING"
+        ));
+        assert!(
+            sql.update
+                .unwrap()
+                .contains("WHERE \"id\" = $2 AND \"user_id\" = $3")
+        );
+        assert_eq!(
+            sql.delete,
+            "DELETE FROM \"notes\" WHERE \"id\" = $1 AND \"user_id\" = $2"
+        );
+        assert!(sql.list_desc.contains("ORDER BY \"id\" DESC"));
+        assert_eq!(
+            e.fields[3].column(),
+            "\"created_at\" TIMESTAMPTZ NOT NULL DEFAULT now()"
+        );
+        for invalid in [
+            syn::parse_quote!(
+                struct A {
+                    #[id]
+                    #[generated]
+                    id: i64,
+                    #[owner]
+                    #[writable]
+                    o: i64,
+                }
+            ),
+            syn::parse_quote!(
+                struct A {
+                    #[id]
+                    #[generated]
+                    id: i64,
+                    #[generated]
+                    at: String,
+                }
+            ),
+            syn::parse_quote!(
+                struct A {
+                    #[id]
+                    #[generated]
+                    id: i64,
+                    #[owner]
+                    a: i64,
+                    #[owner]
+                    b: i64,
+                }
+            ),
+        ] {
+            assert!(entity(&invalid, "a".into()).is_err())
         }
     }
     #[test]

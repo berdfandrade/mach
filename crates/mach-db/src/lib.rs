@@ -1,5 +1,6 @@
 use serde::Deserialize;
 pub use sqlx::{PgExecutor, PgPool as Db, Postgres};
+pub type Timestamp = chrono::DateTime<chrono::Utc>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -41,12 +42,21 @@ pub async fn connect(url: &str, max: u32) -> Result<Db> {
 pub struct Pagination {
     pub limit: i64,
     pub offset: i64,
+    pub order: Order,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Order {
+    #[default]
+    Asc,
+    Desc,
 }
 impl Default for Pagination {
     fn default() -> Self {
         Self {
             limit: 25,
             offset: 0,
+            order: Order::Asc,
         }
     }
 }

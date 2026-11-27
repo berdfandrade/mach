@@ -66,21 +66,27 @@ pub trait Access: Send + Sync {
     fn authenticate(&self, headers: &HeaderMap) -> Option<String>;
     fn authorize(&self, principal: &str, resource: Resource<'_>) -> bool;
 }
+pub struct Principal(pub String);
+impl Principal {
+    pub fn id(&self) -> Result<i64> {
+        self.0.parse().map_err(|_| Error::Forbidden)
+    }
+}
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
     pub access: Arc<dyn Access>,
 }
 impl AppState {
-    pub fn require(&self, headers: &HeaderMap, resource: Resource<'_>) -> Result<()> {
+    pub fn require(&self, headers: &HeaderMap, resource: Resource<'_>) -> Result<Principal> {
         let principal = self
             .access
             .authenticate(headers)
             .ok_or(Error::Unauthorized)?;
-        self.access
-            .authorize(&principal, resource)
-            .then_some(())
-            .ok_or(Error::Forbidden)
+        if !self.access.authorize(&principal, resource) {
+            return Err(Error::Forbidden);
+        }
+        Ok(Principal(principal))
     }
 }
 pub struct BearerAccess {

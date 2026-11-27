@@ -177,7 +177,7 @@ fn singular(word: &str) -> String {
         _ => word.into(),
     }
 }
-pub fn component(kind: &str, name: &str) -> Result<Plan> {
+pub fn component(kind: &str, name: &str, owner: Option<&str>) -> Result<Plan> {
     let (module, entity) = if kind == "entity" {
         ensure!(
             name == name.to_upper_camel_case(),
@@ -207,12 +207,21 @@ pub fn component(kind: &str, name: &str) -> Result<Plan> {
     if crud || kind == "entity" {
         let mut model = template!("model.rs").to_owned();
         if entity == "User" {
-            model=model.replace("    #[writable]","    #[writable]\n    #[expose]\n    #[length(min = 3, max = 254)]\n    pub email: String,\n    #[writable]")
+            model=model.replace("    #[writable]","    #[unique]\n    #[writable]\n    #[expose]\n    #[length(min = 3, max = 254)]\n    pub email: String,\n    #[writable]")
+        }
+        if let Some(table) = owner {
+            ensure!(mach_codegen::valid_ident(table), "invalid owner table");
+            model = model.replace(
+                "    pub name: String,\n",
+                &format!("    pub name: String,\n    #[owner]\n    #[expose]\n    #[references(\"{table}.id\")]\n    pub {}_id: i64,\n", singular(table)),
+            );
         }
         add("model", render(&model)?)?;
     }
     if crud || kind == "controller" {
-        let source = if crud {
+        let source = if crud && owner.is_some() {
+            render(template!("controller_owned.rs"))?
+        } else if crud {
             render(template!("controller.rs"))?
         } else {
             render(
